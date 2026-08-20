@@ -297,35 +297,63 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<bool?> _askSendMode(BuildContext context) {
-    return showModalBottomSheet<bool>(
+  Widget _choiceBody({required String title, required List<Widget> children}) {
+    return SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 12),
+          ...children,
+        ],
+      ),
+    );
+  }
+
+  Future<T?> _showChoice<T>({
+    required BuildContext context,
+    required String title,
+    required List<Widget> children,
+  }) {
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.7;
+    final body = ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: maxHeight, maxWidth: 480),
+      child: _choiceBody(title: title, children: children),
+    );
+
+    return showDialog<T>(
       context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('What do you want to send?', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 12),
-              ListTile(
-                leading: const Icon(Icons.insert_drive_file_outlined),
-                title: const Text('Files'),
-                subtitle: const Text('Pick one or more files'),
-                onTap: () => Navigator.pop(context, false),
-              ),
-              ListTile(
-                leading: const Icon(Icons.folder_outlined),
-                title: const Text('Folder'),
-                subtitle: const Text('Send a folder with all files inside'),
-                onTap: () => Navigator.pop(context, true),
-              ),
-            ],
-          ),
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+          child: body,
         ),
       ),
+    );
+  }
+
+  Future<bool?> _askSendMode(BuildContext context) {
+    return _showChoice<bool>(
+      context: context,
+      title: 'What do you want to send?',
+      children: [
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.insert_drive_file_outlined),
+          title: const Text('Files'),
+          subtitle: const Text('Browse any folder and pick one or more files'),
+          onTap: () => Navigator.pop(context, false),
+        ),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.folder_outlined),
+          title: const Text('Folder'),
+          subtitle: Text(Platform.isAndroid ? 'Pick multiple files from a folder' : 'Send a folder with all files inside'),
+          onTap: () => Navigator.pop(context, true),
+        ),
+      ],
     );
   }
 
@@ -338,16 +366,36 @@ class _HomePageState extends State<HomePage> {
       final sendFolder = await _askSendMode(context);
       if (sendFolder == null || !mounted) return;
 
+      List<PlatformFile> pickedFiles = const [];
+      String? folderPath;
+
+      if (sendFolder && !Platform.isAndroid) {
+        folderPath = await FilePicker.platform.getDirectoryPath(
+          dialogTitle: 'Select folder to send',
+          lockParentWindow: true,
+        );
+        if (folderPath == null || !mounted) return;
+      } else {
+        final result = await FilePicker.platform.pickFiles(
+          allowMultiple: true,
+          type: FileType.any,
+          withData: false,
+          withReadStream: true,
+          lockParentWindow: true,
+          dialogTitle: sendFolder ? 'Select files from the folder to send' : 'Select files to send',
+        );
+        if (result == null || result.files.isEmpty || !mounted) return;
+        pickedFiles = result.files;
+      }
+
       final destinations = await service.fetchDestinations(device);
       if (!mounted) return;
       final destination = await _pickDestination(context, destinations);
       if (destination == null) return;
       setState(() => tab = 1);
 
-      if (sendFolder) {
-        final dirPath = await FilePicker.platform.getDirectoryPath(dialogTitle: 'Select folder to send');
-        if (dirPath == null || !mounted) return;
-        final count = await service.sendDirectory(device, dirPath, destination);
+      if (folderPath != null) {
+        final count = await service.sendDirectory(device, folderPath, destination);
         if (!mounted) return;
         if (count == 0) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -357,14 +405,7 @@ class _HomePageState extends State<HomePage> {
         return;
       }
 
-      final result = await FilePicker.platform.pickFiles(
-        allowMultiple: true,
-        withData: false,
-        withReadStream: true,
-        dialogTitle: 'Select files to send',
-      );
-      if (result == null || result.files.isEmpty || !mounted) return;
-      for (final selected in result.files) {
+      for (final selected in pickedFiles) {
         unawaited(service.sendPlatformFile(device, selected, destination));
       }
     } catch (e) {
@@ -375,54 +416,46 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<Destination?> _pickDestination(BuildContext context, List<Destination> destinations) {
-    final compact = MediaQuery.sizeOf(context).width < AppBreakpoints.compact;
-    final content = SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Choose destination folder', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 12),
-            ...destinations.map(
-              (d) => Card(
-                margin: const EdgeInsets.only(bottom: 10),
-                child: ListTile(
-                  leading: Icon(Icons.folder_rounded, color: Theme.of(context).colorScheme.primary),
-                  title: Text(d.label, style: const TextStyle(fontWeight: FontWeight.w700)),
-                  subtitle: Text(d.detail, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  onTap: () => Navigator.pop(context, d),
-                ),
+    return _showChoice<Destination>(
+      context: context,
+      title: 'Choose destination folder',
+      children: destinations
+          .map(
+            (d) => Card(
+              margin: const EdgeInsets.only(bottom: 10),
+              child: ListTile(
+                leading: Icon(Icons.folder_rounded, color: Theme.of(context).colorScheme.primary),
+                title: Text(d.label, style: const TextStyle(fontWeight: FontWeight.w700)),
+                subtitle: Text(d.detail, maxLines: 2, overflow: TextOverflow.ellipsis),
+                onTap: () => Navigator.pop(context, d),
               ),
             ),
-          ],
-        ),
-      ),
-    );
-
-    if (compact) {
-      return showModalBottomSheet<Destination>(context: context, showDragHandle: true, builder: (_) => content);
-    }
-    return showDialog<Destination>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Choose destination'),
-        content: SizedBox(width: 420, child: content),
-      ),
+          )
+          .toList(),
     );
   }
 
   Future<bool> _openQrScanner() async {
-    final status = await Permission.camera.request();
+    var status = await Permission.camera.status;
+    if (!status.isGranted) {
+      status = await Permission.camera.request();
+    }
     if (!status.isGranted) {
       if (mounted) {
+        final openSettings = status.isPermanentlyDenied;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Camera permission is required to scan a pairing QR code.')),
+          SnackBar(
+            content: const Text('Camera permission is required to scan a pairing QR code.'),
+            action: openSettings
+                ? SnackBarAction(label: 'Settings', onPressed: openAppSettings)
+                : null,
+          ),
         );
       }
       return false;
     }
+    // Wait for Android to finish the permission activity before opening CameraX.
+    await Future<void>.delayed(const Duration(milliseconds: 400));
     if (!mounted) return false;
     return await Navigator.push<bool>(
           context,
@@ -1214,18 +1247,65 @@ class _QrScanner extends StatefulWidget {
   State<_QrScanner> createState() => _QrScannerState();
 }
 
-class _QrScannerState extends State<_QrScanner> {
+class _QrScannerState extends State<_QrScanner> with WidgetsBindingObserver {
   bool busy = false;
+  bool _starting = false;
+  String? _error;
   late final MobileScannerController controller;
 
   @override
   void initState() {
     super.initState();
-    controller = MobileScannerController(detectionSpeed: DetectionSpeed.noDuplicates, facing: CameraFacing.back);
+    WidgetsBinding.instance.addObserver(this);
+    controller = MobileScannerController(
+      autoStart: false,
+      detectionSpeed: DetectionSpeed.noDuplicates,
+      facing: CameraFacing.back,
+      formats: const [BarcodeFormat.qrCode],
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_startCamera());
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (!controller.value.isRunning) unawaited(_startCamera());
+    } else if (state == AppLifecycleState.inactive) {
+      unawaited(controller.stop());
+    }
+  }
+
+  Future<void> _startCamera({bool tryFront = false}) async {
+    if (!mounted || _starting) return;
+    _starting = true;
+    setState(() => _error = null);
+    try {
+      if (controller.value.isRunning) {
+        await controller.stop();
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+      await controller.start(cameraDirection: tryFront ? CameraFacing.front : CameraFacing.back);
+    } on MobileScannerException catch (e) {
+      if (!tryFront) {
+        _starting = false;
+        await _startCamera(tryFront: true);
+        return;
+      }
+      if (mounted) {
+        setState(() => _error = e.errorDetails?.message ?? e.errorCode.name);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      _starting = false;
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     controller.dispose();
     super.dispose();
   }
@@ -1243,6 +1323,30 @@ class _QrScannerState extends State<_QrScanner> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
   }
 
+  Future<void> _pasteCode() async {
+    final pasted = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        final field = TextEditingController();
+        return AlertDialog(
+          title: const Text('Paste pairing code'),
+          content: TextField(
+            controller: field,
+            autofocus: true,
+            maxLines: 4,
+            decoration: const InputDecoration(hintText: 'Paste the QR text from the other device'),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(context, field.text.trim()), child: const Text('Pair')),
+          ],
+        );
+      },
+    );
+    if (pasted == null || pasted.isEmpty) return;
+    await _handleScan(pasted);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1250,44 +1354,93 @@ class _QrScannerState extends State<_QrScanner> {
         title: const Text('Scan pairing QR'),
         actions: [
           IconButton(
+            tooltip: 'Paste pairing code',
+            icon: const Icon(Icons.content_paste_rounded),
+            onPressed: _pasteCode,
+          ),
+          IconButton(
             icon: ValueListenableBuilder(
               valueListenable: controller,
               builder: (context, state, child) {
-                switch (state.torchState) {
-                  case TorchState.off:
-                    return const Icon(Icons.flash_off_rounded);
-                  case TorchState.on:
-                    return const Icon(Icons.flash_on_rounded);
-                  default:
-                    return const Icon(Icons.flash_off_rounded);
-                }
+                return Icon(state.torchState == TorchState.on ? Icons.flash_on_rounded : Icons.flash_off_rounded);
               },
             ),
             onPressed: () => controller.toggleTorch(),
           ),
         ],
       ),
-      body: MobileScanner(
-        controller: controller,
-        onDetect: (capture) async {
-          if (capture.barcodes.isEmpty) return;
-          final value = capture.barcodes.first.rawValue;
-          if (value == null) return;
-          await _handleScan(value);
-        },
-        errorBuilder: (context, error, child) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Text(
-                error.errorCode == MobileScannerErrorCode.permissionDenied
-                    ? 'Camera permission is required. Enable it in Android Settings and try again.'
-                    : 'Could not open the camera (${error.errorCode.name}).',
-                textAlign: TextAlign.center,
-              ),
-            ),
-          );
-        },
+      body: Column(
+        children: [
+          Expanded(
+            child: _error != null
+                ? Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Could not open the camera.\n$_error',
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 16),
+                        FilledButton(
+                          onPressed: () => _startCamera(),
+                          child: const Text('Try again'),
+                        ),
+                        const SizedBox(height: 8),
+                        TextButton(
+                          onPressed: _pasteCode,
+                          child: const Text('Paste pairing code instead'),
+                        ),
+                      ],
+                    ),
+                  )
+                : MobileScanner(
+                    controller: controller,
+                    onDetect: (capture) async {
+                      if (capture.barcodes.isEmpty) return;
+                      final value = capture.barcodes.first.rawValue;
+                      if (value == null) return;
+                      await _handleScan(value);
+                    },
+                    errorBuilder: (context, error, child) {
+                      final detail = error.errorDetails?.message;
+                      final denied = error.errorCode == MobileScannerErrorCode.permissionDenied;
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                denied
+                                    ? 'Camera permission is required. Enable it in Android Settings and try again.'
+                                    : 'Could not open the camera${detail == null || detail.isEmpty ? '' : ': $detail'}.',
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 16),
+                              FilledButton(
+                                onPressed: () {
+                                  if (denied) {
+                                    unawaited(openAppSettings());
+                                  } else {
+                                    unawaited(_startCamera());
+                                  }
+                                },
+                                child: Text(denied ? 'Open settings' : 'Try again'),
+                              ),
+                              TextButton(
+                                onPressed: _pasteCode,
+                                child: const Text('Paste pairing code instead'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
       ),
     );
   }
