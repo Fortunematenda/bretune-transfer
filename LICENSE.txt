@@ -1,0 +1,4 @@
+Copyright (c) 2026 Bretune Technologies. All rights reserved.
+
+This source package is provided for use and development by Bretune Technologies.
+It may not be redistributed, sublicensed, or sold without written permission.
