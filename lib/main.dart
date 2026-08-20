@@ -440,7 +440,7 @@ class _HomePageState extends State<HomePage> {
               child: ListTile(
                 leading: Icon(Icons.folder_rounded, color: Theme.of(context).colorScheme.primary),
                 title: Text(d.label, style: const TextStyle(fontWeight: FontWeight.w700)),
-                subtitle: Text(d.detail, maxLines: 2, overflow: TextOverflow.ellipsis),
+                subtitle: Text(friendlyStoragePath(d.detail), maxLines: 2, overflow: TextOverflow.ellipsis),
                 onTap: () => Navigator.pop(context, d),
               ),
             ),
@@ -958,10 +958,11 @@ class _TransferCard extends StatelessWidget {
                         '${record.incoming ? 'From' : 'To'} ${record.peer} • ${prettyBytes(record.total)}',
                         style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
                       ),
-                      if (record.finishedAt != null) ...[
-                        const SizedBox(height: 4),
-                        Text(formatTransferTime(record.finishedAt), style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12)),
-                      ],
+                      const SizedBox(height: 4),
+                      Text(
+                        formatTransferTime(record.displayTime),
+                        style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12),
+                      ),
                     ],
                   ),
                 ),
@@ -1002,7 +1003,7 @@ class _TransferCard extends StatelessWidget {
                           Text('Saved to', style: TextStyle(color: AppColors.success, fontSize: 12, fontWeight: FontWeight.w700)),
                           const SizedBox(height: 2),
                           Text(
-                            record.message,
+                            friendlyStoragePath(record.message),
                             maxLines: 4,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12),
@@ -1073,7 +1074,10 @@ class _SettingsView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final receiveFolder = service.destinations.isNotEmpty ? service.destinations.last.detail : 'Not set';
+    final primary = service.destinations.isNotEmpty ? service.destinations.first : null;
+    final receiveFolder = primary == null
+        ? 'Not set'
+        : '${primary.label}\n${friendlyStoragePath(primary.detail)}';
 
     return ContentContainer(
       child: LayoutBuilder(

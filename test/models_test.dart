@@ -20,6 +20,21 @@ void main() {
     expect(transferStatusLabel(TransferState.complete, false), 'Delivered');
   });
 
+  test('formatTransferTime includes date and time', () {
+    expect(formatTransferTime(DateTime(2026, 8, 20, 11, 4)), '20 Aug 2026 • 11:04');
+  });
+
+  test('friendlyStoragePath shortens Android public paths', () {
+    expect(
+      friendlyStoragePath('/storage/emulated/0/Download/Bretune Transfer/vs_BuildTools.exe'),
+      'Download/Bretune Transfer/vs_BuildTools.exe',
+    );
+    expect(
+      friendlyStoragePath('/data/user/0/com.bretunetech.bretune_transfer/app_flutter/Bretune Transfer/file.exe'),
+      'App storage/Bretune Transfer/file.exe',
+    );
+  });
+
   test('transfer record JSON round trip', () {
     final record = TransferRecord(
       id: 'abc',

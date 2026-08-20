@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'models.dart';
@@ -77,18 +78,39 @@ class TransferService {
   }
 
   Future<void> _loadDestinations() async {
+    destinations.clear();
+    if (Platform.isAndroid) {
+      await _ensureAndroidStorageAccess();
+      final public = await _androidPublicReceiveFolder();
+      if (public != null) {
+        destinations.add(Destination('downloads', 'Downloads', public));
+      }
+      final documents = await _tryCreateWritableDir('/storage/emulated/0/Documents/Bretune Transfer');
+      if (documents != null && documents != public) {
+        destinations.add(Destination('documents', 'Documents', documents));
+      }
+    }
+
     final docs = await getApplicationDocumentsDirectory();
     final inbox = Directory(p.join(docs.path, 'Bretune Transfer'));
     await inbox.create(recursive: true);
-    destinations
-      ..clear()
-      ..add(Destination('inbox', 'Bretune Inbox', inbox.path));
+    if (destinations.isEmpty) {
+      destinations.add(Destination('inbox', 'Bretune Inbox', inbox.path));
+    } else if (!Platform.isAndroid) {
+      destinations.add(Destination('inbox', 'Bretune Inbox', inbox.path));
+    }
+
     if (Platform.isWindows) {
       final profile = Platform.environment['USERPROFILE'];
       if (profile != null) {
-        destinations.addAll([Destination('documents', 'Documents', p.join(profile, 'Documents')), Destination('downloads', 'Downloads', p.join(profile, 'Downloads')), Destination('desktop', 'Desktop', p.join(profile, 'Desktop'))]);
+        destinations.addAll([
+          Destination('documents', 'Documents', p.join(profile, 'Documents')),
+          Destination('downloads', 'Downloads', p.join(profile, 'Downloads')),
+          Destination('desktop', 'Desktop', p.join(profile, 'Desktop')),
+        ]);
       }
     }
+
     final prefs = await SharedPreferences.getInstance();
     var custom = prefs.getString('customDestination');
     if (custom != null && custom.isNotEmpty) {
@@ -103,8 +125,50 @@ class TransferService {
     }
   }
 
+  Future<void> _ensureAndroidStorageAccess() async {
+    if (!Platform.isAndroid) return;
+    try {
+      var status = await Permission.manageExternalStorage.status;
+      if (!status.isGranted) {
+        status = await Permission.manageExternalStorage.request();
+      }
+      if (status.isGranted) return;
+      final storage = await Permission.storage.request();
+      if (!storage.isGranted) {
+        await Permission.photos.request();
+      }
+    } catch (_) {}
+  }
+
+  Future<String?> _androidPublicReceiveFolder() async {
+    final candidates = <String>[
+      '/storage/emulated/0/Download/Bretune Transfer',
+      '/storage/emulated/0/Downloads/Bretune Transfer',
+      '/sdcard/Download/Bretune Transfer',
+    ];
+    for (final path in candidates) {
+      final created = await _tryCreateWritableDir(path);
+      if (created != null) return created;
+    }
+    return null;
+  }
+
+  Future<String?> _tryCreateWritableDir(String path) async {
+    try {
+      final dir = Directory(path);
+      await dir.create(recursive: true);
+      final probe = File(p.join(path, '.bretune_write_test'));
+      await probe.writeAsString('ok');
+      await probe.delete();
+      return path;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<String> setCustomDestination(String path) async {
     if (Platform.isAndroid) {
+      await _ensureAndroidStorageAccess();
       path = await _resolveWritableReceivePath(path);
     }
     final prefs = await SharedPreferences.getInstance();
@@ -121,6 +185,8 @@ class TransferService {
       await probe.delete();
       return picked;
     } catch (_) {
+      final public = await _androidPublicReceiveFolder();
+      if (public != null) return public;
       final docs = await getApplicationDocumentsDirectory();
       final folderName = p.basename(picked).isEmpty ? 'Received' : p.basename(picked);
       final fallback = p.join(docs.path, 'Bretune Transfer', folderName);

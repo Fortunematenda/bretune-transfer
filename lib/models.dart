@@ -35,8 +35,9 @@ class TransferRecord {
     this.filePath,
     this.destinationId,
     this.destinationLabel,
+    DateTime? startedAt,
     this.finishedAt,
-  });
+  }) : startedAt = startedAt ?? DateTime.now();
 
   final String id;
   final String fileName;
@@ -50,6 +51,7 @@ class TransferRecord {
   String? filePath;
   String? destinationId;
   String? destinationLabel;
+  DateTime startedAt;
   DateTime? finishedAt;
 
   double get progress => total == 0 ? 0 : done / total;
@@ -66,6 +68,8 @@ class TransferRecord {
 
   String get statusLabel => transferStatusLabel(state, incoming);
 
+  DateTime get displayTime => finishedAt ?? startedAt;
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'fileName': fileName,
@@ -79,6 +83,7 @@ class TransferRecord {
     'filePath': filePath,
     'destinationId': destinationId,
     'destinationLabel': destinationLabel,
+    'startedAt': startedAt.toIso8601String(),
     'finishedAt': finishedAt?.toIso8601String(),
   };
 
@@ -95,6 +100,7 @@ class TransferRecord {
     filePath: json['filePath'] as String?,
     destinationId: json['destinationId'] as String?,
     destinationLabel: json['destinationLabel'] as String?,
+    startedAt: json['startedAt'] == null ? null : DateTime.tryParse(json['startedAt'] as String),
     finishedAt: json['finishedAt'] == null ? null : DateTime.tryParse(json['finishedAt'] as String),
   );
 }
@@ -113,9 +119,35 @@ String transferStatusLabel(TransferState state, bool incoming) {
 String formatTransferTime(DateTime? time) {
   if (time == null) return '';
   final local = time.toLocal();
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  final day = local.day.toString().padLeft(2, '0');
+  final month = months[local.month - 1];
+  final year = local.year;
   final hh = local.hour.toString().padLeft(2, '0');
   final mm = local.minute.toString().padLeft(2, '0');
-  return '$hh:$mm';
+  return '$day $month $year • $hh:$mm';
+}
+
+String friendlyStoragePath(String path) {
+  final normalized = path.replaceAll('\\', '/');
+  final markers = <(String, String)>[
+    ('/storage/emulated/0/Download/', 'Download/'),
+    ('/storage/emulated/0/Downloads/', 'Download/'),
+    ('/storage/emulated/0/Documents/', 'Documents/'),
+    ('/storage/emulated/0/', 'Phone/'),
+    ('/sdcard/Download/', 'Download/'),
+    ('/sdcard/Documents/', 'Documents/'),
+    ('/sdcard/', 'Phone/'),
+  ];
+  for (final marker in markers) {
+    final index = normalized.indexOf(marker.$1);
+    if (index >= 0) return '${marker.$2}${normalized.substring(index + marker.$1.length)}';
+  }
+  if (normalized.contains('/app_flutter/')) {
+    final parts = normalized.split('/app_flutter/');
+    return 'App storage/${parts.last}';
+  }
+  return path;
 }
 
 class PendingOffer {
