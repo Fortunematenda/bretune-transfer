@@ -778,7 +778,7 @@ class _TransfersViewState extends State<_TransfersView> {
               children: [
                 const PageHeader(
                   title: 'Transfer history',
-                  subtitle: 'Review successful and failed transfers, then resend failed outgoing files.',
+                  subtitle: 'Transfers from this session. History is cleared when you close the app.',
                 ),
                 const SizedBox(height: 16),
                 Wrap(

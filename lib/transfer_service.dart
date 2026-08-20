@@ -48,7 +48,8 @@ class TransferService {
     for (final key in prefs.getKeys().where((k) => k.startsWith('peerSecret:'))) {
       _peerSecrets[key.substring('peerSecret:'.length)] = prefs.getString(key)!;
     }
-    await _loadTransfers();
+    await prefs.remove('transferHistory');
+    transfers.clear();
     await _loadDestinations();
     _server = await HttpServer.bind(InternetAddress.anyIPv4, 0, shared: true);
     _server!.listen(_handleRequest);
@@ -313,30 +314,8 @@ class TransferService {
     onChanged();
   }
 
-  Future<void> _loadTransfers() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getStringList('transferHistory') ?? [];
-    transfers
-      ..clear()
-      ..addAll(raw.map((entry) => TransferRecord.fromJson(jsonDecode(entry) as Map<String, dynamic>)));
-    for (final record in transfers) {
-      if (record.state == TransferState.sending || record.state == TransferState.receiving || record.state == TransferState.waiting) {
-        record.state = TransferState.failed;
-        record.message = record.message.isEmpty ? 'Interrupted before completion' : record.message;
-        record.finishedAt ??= DateTime.now();
-      }
-    }
-  }
-
-  Future<void> _persistTransfers() async {
-    final prefs = await SharedPreferences.getInstance();
-    final items = transfers.take(100).map((record) => jsonEncode(record.toJson())).toList();
-    await prefs.setStringList('transferHistory', items);
-  }
-
   void _syncTransfers() {
     onChanged();
-    unawaited(_persistTransfers());
   }
 
   void _finishRecord(TransferRecord record, TransferState state, {String message = ''}) {
