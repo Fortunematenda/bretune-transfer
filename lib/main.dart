@@ -298,16 +298,20 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _choiceBody({required String title, required List<Widget> children}) {
-    return SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 12),
-          ...children,
-        ],
-      ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 12),
+        Flexible(
+          child: ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.only(bottom: 8),
+            children: children,
+          ),
+        ),
+      ],
     );
   }
 
@@ -316,21 +320,31 @@ class _HomePageState extends State<HomePage> {
     required String title,
     required List<Widget> children,
   }) {
-    final maxHeight = MediaQuery.sizeOf(context).height * 0.7;
-    final body = ConstrainedBox(
-      constraints: BoxConstraints(maxHeight: maxHeight, maxWidth: 480),
-      child: _choiceBody(title: title, children: children),
-    );
-
     return showDialog<T>(
       context: context,
-      builder: (context) => Dialog(
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-          child: body,
-        ),
-      ),
+      builder: (context) {
+        final media = MediaQuery.of(context);
+        final compact = AppBreakpoints.isCompact(media.size.width);
+        final extraBottom = compact ? 80.0 : 36.0;
+        final inset = EdgeInsets.fromLTRB(
+          compact ? 16 : 28,
+          24 + media.padding.top,
+          compact ? 16 : 28,
+          extraBottom + media.padding.bottom,
+        );
+        final maxHeight = (media.size.height - inset.vertical - 16).clamp(220.0, compact ? 420.0 : 560.0);
+
+        return Dialog(
+          insetPadding: inset,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: 480, maxHeight: maxHeight),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+              child: _choiceBody(title: title, children: children),
+            ),
+          ),
+        );
+      },
     );
   }
 
